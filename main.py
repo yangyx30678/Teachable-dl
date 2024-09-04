@@ -18,6 +18,12 @@ from selenium.webdriver.remote.webdriver import By
 from selenium.webdriver.support.wait import WebDriverWait
 from seleniumbase import Driver
 
+from dotenv import load_dotenv
+load_dotenv(verbose=True)
+import os
+URL = os.getenv("URL")
+EMAIL = os.getenv("EMAIL")
+PASSWORD = os.getenv("PASSWORD")
 
 def create_folder(course_title):
     root_path = os.path.abspath(os.getcwd())
@@ -48,7 +54,7 @@ def truncate_title_to_fit_file_name(title, max_file_name_length=250):
 
 
 class TeachableDownloader:
-    def __init__(self, verbose_arg=False, complete_lecture_arg=False, user_agent_arg=None, timeout_arg=10):
+    def __init__(self, verbose_arg=False, complete_lecture_arg=False, user_agent_arg=None, timeout_arg=3):
         self.driver = Driver(uc=True, headed=True)
         self.headers = {
             "User-Agent": user_agent_arg,
@@ -213,7 +219,7 @@ class TeachableDownloader:
         if self.check_elem_exists(By.ID, "challenge-stage", timeout=self.global_timeout):
             self.bypass_cloudflare()
 
-        WebDriverWait(self.driver, timeout=15).until(
+        WebDriverWait(self.driver, timeout=5).until(
             EC.presence_of_element_located((By.TAG_NAME, 'body')))
 
         email_element = WebDriverWait(self.driver, self.global_timeout).until(
@@ -289,13 +295,13 @@ class TeachableDownloader:
         try:
             logging.info("Getting course title")
             course_title = WebDriverWait(self.driver, self.global_timeout).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".course__title"))
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".lecture_heading"))
             ).text
         except Exception as e:
             logging.warning("Could not get course title, using tab title instead")
             course_title = self.driver.title
 
-        course_title = clean_string(course_title)
+        # course_title = clean_string(course_title)
         course_path = create_folder(course_title)
 
         logging.info("Saving course html")
@@ -350,6 +356,7 @@ class TeachableDownloader:
     def download_course_classic(self, course_url):
         # self.driver.find_elements(By.CLASS_NAME, "course-mainbar")
         logging.info("Detected _mainbar course format")
+        print("Detected _mainbar course format")
         try:
             logging.debug("Getting course title")
             course_title = WebDriverWait(self.driver, self.global_timeout).until(
@@ -360,9 +367,12 @@ class TeachableDownloader:
             course_title = self.driver.title
 
         logging.debug("Found course title: \"" + course_title + "\" starting cleaning of title string")
+        print("Found course title: \"" + course_title + "\" starting cleaning of title string")
         course_title = clean_string(course_title)
         logging.info("Found course title: " + course_title)
+        print("Found course title: " + course_title)
         course_path = create_folder(course_title)
+        print("course_path: ", course_path)
 
         try:
             logging.debug("Saving course html")
@@ -410,7 +420,7 @@ class TeachableDownloader:
         )
         for section in sections:
             chapter_title = section.find_element(By.CSS_SELECTOR, ".section-title").text
-            chapter_title = clean_string(chapter_title)
+            # chapter_title = clean_string(chapter_title)
             chapter_title = chapter_title = "{:02d}-{}".format(chapter_idx, chapter_title)
             logging.info("Found chapter: " + chapter_title)
 
@@ -425,12 +435,12 @@ class TeachableDownloader:
                 lecture_link = section_item.find_element(By.CLASS_NAME, "item").get_attribute("href")
 
                 lecture_title = section_item.find_element(By.CLASS_NAME, "lecture-name").text
-                lecture_title = clean_string(lecture_title)
+                # lecture_title = clean_string(lecture_title)
                 logging.info("Found lecture: " + lecture_title)
+                # truncated_lecture_title = truncate_title_to_fit_file_name(lecture_title)
 
-                truncated_lecture_title = truncate_title_to_fit_file_name(lecture_title)
-
-                video_entity = {"link": lecture_link, "title": truncated_lecture_title, "idx": idx,
+                
+                video_entity = {"link": lecture_link, "title": lecture_title, "idx": idx,
                                 "download_path": download_path}
                 video_list.append(video_entity)
                 idx += 1
@@ -451,6 +461,7 @@ class TeachableDownloader:
         return course_title
 
     def download_course_simple(self, course_url):
+        print("download_course_simple")
         self.driver.implicitly_wait(2)
         logging.info("Detected next course format")
         course_title = self.get_course_title_next(course_url)
@@ -521,15 +532,17 @@ class TeachableDownloader:
                 video_entity = {"link": link, "title": truncated_title, "idx": idx, "download_path": download_path}
                 video_list.append(video_entity)
                 idx += 1
-
+    
         self.download_videos_from_links(video_list)
 
     def download_videos_from_links(self, video_list):
+        timeout = 15
         for video in video_list:
+            print(video["title"])
             if self.driver.current_url != video["link"]:
                 logging.info("Navigating to lecture: " + video["title"])
                 self.driver.get(video["link"])
-                self.driver.implicitly_wait(self.global_timeout)
+                self.driver.implicitly_wait(timeout)
             logging.info("Downloading lecture: " + video["title"])
 
             # logging.info("Disabling autoplay")
@@ -542,11 +555,11 @@ class TeachableDownloader:
             except Exception as e:
                 logging.error("Could not save html: " + video["title"] + " cause: " + str(e), exc_info=self.verbose)
 
-            try:
-                logging.info("Downloading attachments")
-                self.download_attachments(video["link"], video["title"], video["idx"], video["download_path"])
-            except Exception as e:
-                logging.warning("Could not download attachments: " + video["title"] + " cause: " + str(e))
+            # try:
+            #     logging.info("Downloading attachments")
+            #     self.download_attachments(video["link"], video["title"], video["idx"], video["download_path"])
+            # except Exception as e:
+            #     logging.warning("Could not download attachments: " + video["title"] + " cause: " + str(e))
             
             try:
                 logging.debug("Trying to download video as an attachment")
@@ -565,16 +578,16 @@ class TeachableDownloader:
 
                     script_text = self.driver.find_element(By.ID, "__NEXT_DATA__")
                     json_text = json.loads(script_text.get_attribute("innerHTML"))
-                    link = json_text["props"]["pageProps"]["applicationData"]["mediaAssets"][0]["urlEncrypted"]
-
+                    # ["urlEncrypted"] some how cause some 404 here
+                    link = json_text["props"]["pageProps"]["applicationData"]["mediaAssets"][0]["url"]
                     # Append -n to the video title if there are multiple iframes
                     video_title = video["title"] + ("-" + str(i + 1) if len(video_iframes) > 1 else "")
 
-                    try:
-                        logging.info("Downloading subtitle")
-                        self.download_subtitle(link, video_title, video["idx"], video["download_path"])
-                    except Exception as e:
-                        logging.warning("Could not download subtitle: " + video_title + " cause: " + str(e))
+                    # try:
+                    #     logging.info("Downloading subtitle")
+                    #     self.download_subtitle(link, video_title, video["idx"], video["download_path"])
+                    # except Exception as e:
+                    #     logging.warning("Could not download subtitle: " + video_title + " cause: " + str(e))
 
                     try:
                         logging.info("Downloading video")
@@ -627,9 +640,12 @@ class TeachableDownloader:
             "outtmpl": os.path.join(output_path, "{:02d}-{}.mp4".format(video_index, title)),
             "verbose": self.verbose,
         }
+        print("download_video link: ", link)
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([link])
+                # ydl.download([link])
+                ydl.download(link)
+
         except Exception as e:
             logging.error("Could not download video: " + title + " cause: " + str(e))
 
@@ -691,17 +707,16 @@ class TeachableDownloader:
                 logging.info("Downloaded subtitle: " + subtitle_filename)
                 
     def download_video_file(self, title, video_index, output_path, timeout=-1):
-        video_title = "{:02d}-{}".format(video_index, title)
-
+        # video_title = "{:02d}-{}".format(video_index, title)
+        video_title = video_index, title
         # Grab the video attachments type video
         video_attachment = self.driver.find_element(By.CLASS_NAME, "lecture-attachment-type-video")
-
         if not video_attachment:
             logging.debug(f"No video attachment found for lecture: {title}")
             return False
 
         video_link = video_attachment.find_element(By.TAG_NAME, "a")
-
+        print(video_link)
         if not video_link:
             logging.debug(f"No video link found for lecture: {title}")
             return False
@@ -821,9 +836,9 @@ def check_required_args(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='Teachable-Dl', description='Download courses', )
-    parser.add_argument("--url", required=False, help='URL of the course')
-    parser.add_argument("-e", "--email", required=False, help='Email of the account')
-    parser.add_argument("-p", "--password", required=False, help='Password of the account')
+    parser.add_argument("--url", required=False, help='URL of the course', default=URL)
+    parser.add_argument("-e", "--email", required=False, help='Email of the account', default=EMAIL)
+    parser.add_argument("-p", "--password", required=False, help='Password of the account', default=PASSWORD)
     parser.add_argument('-v', '--verbose', action='count', default=0,
                         help='Increase verbosity level (repeat for more verbosity)')
     parser.add_argument('--complete-lecture', action='store_true', default=False,
